@@ -1,0 +1,15 @@
+# Install a matching CPU/CUDA PyTorch build separately when needed; see README.
+torch>=2.4
+transformers==4.56.2
+peft>=0.13
+accelerate>=1.0
+sentencepiece>=0.2
+protobuf>=4.25
+PyYAML>=6.0
+python-dotenv>=1.0
+streamlit>=1.40
+pytest>=8.0
+
+# Optional acceleration; install separately where supported.
+# unsloth
+# bitsandbytes

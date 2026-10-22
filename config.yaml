@@ -1,0 +1,14 @@
+model:
+  path: ./models/checkpoint-30
+  base_path: ./models/Qwen3-8B-unsloth-bnb-4bit
+  max_seq_len: 4096
+  load_in_4bit: true
+  device: auto
+
+generation:
+  top_p: 0.85
+  repetition_penalty: 1.15
+  temperature: 0.25
+
+logging:
+  level: INFO
