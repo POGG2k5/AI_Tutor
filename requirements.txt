@@ -4,6 +4,7 @@ transformers==4.56.2
 peft>=0.13
 accelerate>=1.0
 huggingface_hub>=0.26
+kagglehub>=0.3
 sentencepiece>=0.2
 protobuf>=4.25
 PyYAML>=6.0
@@ -13,7 +14,5 @@ pytest>=8.0
 
 # Optional acceleration; install separately where supported.
 # unsloth
+# bitsandbytes: bat buoc de nap 4-bit tren GPU (giam ~16 GB xuong ~5,5 GB VRAM)
 # bitsandbytes
-
-# Optional: tai LoRA adapter tu Kaggle khi chua co model local.
-# kagglehub
