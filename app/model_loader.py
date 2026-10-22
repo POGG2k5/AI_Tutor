@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,7 @@ import torch
 from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
 from app.config import AppConfig
+from app.model_download import ensure_models
 
 LOGGER = logging.getLogger(__name__)
 
@@ -107,6 +109,7 @@ def _load_with_transformers(path: Path, config: AppConfig, device: str) -> tuple
 
 def load_model(config: AppConfig) -> tuple[Any, Any]:
     """Try Unsloth first, then fall back to Transformers and PEFT."""
+    config = ensure_models(config)
     path = config.model_path.expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(
@@ -135,15 +138,5 @@ def load_model(config: AppConfig) -> tuple[Any, Any]:
         if device != "cuda":
             raise
         LOGGER.exception("Khong the nap 4-bit voi CPU offload; thu lai bang CPU.")
-        cpu_config = AppConfig(
-            model_path=config.model_path,
-            base_model_path=config.base_model_path,
-            max_seq_len=config.max_seq_len,
-            load_in_4bit=config.load_in_4bit,
-            device="cpu",
-            temperature=config.temperature,
-            top_p=config.top_p,
-            repetition_penalty=config.repetition_penalty,
-            log_level=config.log_level,
-        )
+        cpu_config = replace(config, device="cpu")
         return _load_with_transformers(path, cpu_config, "cpu")

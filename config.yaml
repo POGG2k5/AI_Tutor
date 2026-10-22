@@ -4,6 +4,7 @@ model:
   max_seq_len: 4096
   load_in_4bit: true
   device: auto
+  auto_download: true
 
 generation:
   top_p: 0.85

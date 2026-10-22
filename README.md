@@ -32,6 +32,41 @@ pip install -r requirements.txt
 
 Unsloth la tuy chon. Tren moi truong Linux/CUDA tuong thich, co the cai them `pip install -r requirements-unsloth.txt`; neu Unsloth khong co hoac khong nap duoc, ung dung tu fallback sang Transformers + PEFT.
 
+## Chay lan dau tren may moi
+
+Repo GitHub khong chua trong so model (10,6 GB, GitHub chan file > 100 MB). Khi clone ve, thu muc
+`models/` chi co `.gitkeep`, nhung lan chay dau tien ung dung **tu tai model con thieu**:
+
+1. **LoRA adapter** (`models/checkpoint-30`): tai tu `ADAPTER_REPO` (Hugging Face) neu duoc dat,
+   neu khong thi tai tu Kaggle `aegold/math-nckh/transformers/default` qua `kagglehub`.
+   Model Kaggle nay public nen khong can dang nhap; file nam trong cache
+   `~/.cache/kagglehub/models/aegold/math-nckh/...` (~500 MB). Can `pip install kagglehub`.
+2. **Base model** (`models/Qwen3-8B-unsloth-bnb-4bit`): tai tu `BASE_MODEL_REPO`, mac dinh
+   `unsloth/Qwen3-8B-unsloth-bnb-4bit` (repo public, khong can tai khoan, ~5 GB ban 4-bit).
+   Ten repo duoc doc tu `base_model_name_or_path` trong `adapter_config.json`.
+
+File tai ve nam trong `models/` (da `.gitignore`) hoac cache cua `huggingface_hub`/`kagglehub`,
+nen lan chay sau khong tai lai. Cac bien moi truong lien quan:
+
+| Bien | Mac dinh | Y nghia |
+| --- | --- | --- |
+| `AUTO_DOWNLOAD` | `true` | `false` = khong tai gi, chi dung model local |
+| `ADAPTER_REPO` | (trong) | Repo HF chua LoRA adapter, uu tien hon Kaggle |
+| `BASE_MODEL_REPO` | tu adapter config | Repo HF cua base model |
+| `KAGGLE_ADAPTER` | `aegold/math-nckh/transformers/default` | Model Kaggle dung khi khong co `ADAPTER_REPO` |
+| `HF_TOKEN` | (trong) | Chi can khi repo private/gated |
+
+```powershell
+pip install kagglehub            # de tai adapter tu Kaggle
+streamlit run ui/streamlit_app.py  # lan dau: tai adapter + base model, cac lan sau chay ngay
+
+# Hoac uu tien Hugging Face sau khi upload adapter
+$env:ADAPTER_REPO = "xuandinh030705/nckh-math-qwen3-8b-lora"
+```
+
+Luu y: base model 8B can GPU de chay nhanh. Tren may chi co CPU, dat `DEVICE=cpu` va
+`LOAD_IN_4BIT=false` (se rat cham), hoac chuyen sang base model nho hon qua `BASE_MODEL_REPO`.
+
 ## Model tu Kaggle
 
 Checkpoint fine-tune cua notebook la LoRA adapter `checkpoint-30`, khong phai thu muc `unsloth_compiled_cache`. Cache chi chua ma Python bien dich, khong co trong so model va khong can sua.

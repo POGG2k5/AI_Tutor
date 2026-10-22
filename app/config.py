@@ -42,6 +42,7 @@ class AppConfig:
     top_p: float = 0.85
     repetition_penalty: float = 1.15
     log_level: str = "INFO"
+    auto_download: bool = True
 
 
 def load_config(config_path: Path | str = CONFIG_PATH) -> AppConfig:
@@ -73,6 +74,7 @@ def load_config(config_path: Path | str = CONFIG_PATH) -> AppConfig:
         top_p=float(generation.get("top_p", 0.85)),
         repetition_penalty=float(generation.get("repetition_penalty", 1.15)),
         log_level=os.getenv("LOG_LEVEL", logging_config.get("level", "INFO")).upper(),
+        auto_download=_as_bool(os.getenv("AUTO_DOWNLOAD", model.get("auto_download", True))),
     )
 
 
