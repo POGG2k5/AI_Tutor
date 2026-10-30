@@ -273,10 +273,12 @@ def _solve_chain(chain: list[tuple[str, Fraction]], target: Fraction) -> tuple[F
 
 
 def parse_linear(text: str) -> Problem | None:
-    """Nhận diện dạng 'Tìm x, biết: ...' / 'Find x: ...' (kể cả không dấu)."""
+    """Nhận diện dạng 'Tìm x, biết: ...' / 'Find x: ...' (kể cả không dấu) hoặc phương trình trực tiếp."""
     t = normalise_ops(text)
     low = _norm(t)
-    if not re.search(r"(tim|find)\s*x", low):
+    has_lead = bool(re.search(r"(tim|find)\s*x", low))
+    has_eq_x = bool(re.search(r"(?<![a-zA-Z0-9])[xX](?![a-zA-Z0-9])", t)) and ("=" in t)
+    if not (has_lead or has_eq_x):
         return None
     # Cắt bỏ phần dẫn "Tìm x, biết:" / "Find x:" (trên chuỗi đã bỏ dấu) rồi xử lý dấu ':'
     leads = list(re.finditer(r"(?:biet|find\s*x|tim\s*x)", low))
@@ -441,19 +443,32 @@ def parse_problem(text: str) -> Problem | None:
                            data={"pct": to_float(pct_m.group(1)), "total": total,
                                  "ask_left": _kw(low, "con lai", "left")})
 
-    # --- tỉ số (gấp ... lần / ... times)
+    # --- tỉ số (gấp ... lần / ... times hoặc tỉ số dạng a/b)
+    frac_ratio = re.search(r"(?:ti so|ratio)\s*(?:la|cua hai so la|:)?\s*(\d+)\s*[/:]\s*(\d+)", low)
     ratio = re.search(rf"({_NUM})\s*(?:lan|times)", low)
-    if ratio:
-        k = to_float(ratio.group(1))
+    if frac_ratio or ratio:
+        if frac_ratio:
+            num_a, num_b = float(frac_ratio.group(1)), float(frac_ratio.group(2))
+            small_p, big_p = min(num_a, num_b), max(num_a, num_b)
+            # k = big / small
+            k = big_p / small_p if small_p > 0 else 1.0
+            tot_parts = small_p + big_p
+            diff_parts = big_p - small_p
+        else:
+            k = to_float(ratio.group(1))
+            small_p, big_p = 1.0, k
+            tot_parts = k + 1.0
+            diff_parts = k - 1.0
+
         has_total = _kw(low, *_TOTAL_WORDS)
         is_diff = (not has_total) and _kw(low, "hon", "kem", "hieu", "more", "older", "difference")
         base = nums[0] if nums else None
         if base is not None:
             if is_diff:
                 return Problem(text=text, kind="diff_ratio", numbers=nums, unit=unit,
-                               data={"diff": base, "k": k})
+                               data={"diff": base, "k": k, "small_parts": small_p, "big_parts": big_p, "diff_parts": diff_parts})
             return Problem(text=text, kind="sum_ratio", numbers=nums, unit=unit,
-                           data={"total": base, "k": k})
+                           data={"total": base, "k": k, "small_parts": small_p, "big_parts": big_p, "total_parts": tot_parts})
 
     # --- tổng - hiệu
     if _kw(low, *_TOTAL_WORDS) and _kw(low, *_DIFF_WORDS):
@@ -506,16 +521,20 @@ def solve(problem: str | Problem, **_: Any) -> Solution | None:
         return Solution(kind="sum_diff", answer=(float(big), float(small)), unit=unit, steps=steps)
 
     if p.kind == "sum_ratio":
-        total, k = Fraction(str(d["total"])), Fraction(str(d["k"]))
-        small = total / (k + 1)
-        big = total - small
+        total = Fraction(str(d["total"]))
+        small_p = Fraction(str(d.get("small_parts", 1)))
+        big_p = Fraction(str(d.get("big_parts", d["k"])))
+        tot_parts = small_p + big_p
+        unit_val = total / tot_parts
+        small = unit_val * small_p
+        big = unit_val * big_p
         steps = [
-            Step("Tổng số phần bằng nhau", f"1 + {fmt_num(float(k))}", float(k + 1)),
-            Step("Số bé (1 phần)", f"{fmt_num(float(total))} : {fmt_num(float(k + 1))}", float(small)),
-            Step("Số lớn", f"{fmt_num(float(small))} x {fmt_num(float(k))}", float(big)),
+            Step("Tổng số phần bằng nhau", f"{fmt_num(float(small_p))} + {fmt_num(float(big_p))}", float(tot_parts)),
+            Step(f"Số bé ({fmt_num(float(small_p))} phần)", f"{fmt_num(float(total))} : {fmt_num(float(tot_parts))} x {fmt_num(float(small_p))}" if small_p != 1 else f"{fmt_num(float(total))} : {fmt_num(float(tot_parts))}", float(small)),
+            Step(f"Số lớn ({fmt_num(float(big_p))} phần)", f"{fmt_num(float(total))} - {fmt_num(float(small))}", float(big)),
         ]
         return Solution(kind="sum_ratio", answer=(float(big), float(small)), unit=unit, steps=steps,
-                        parts={"big": float(k), "small": 1.0, "total_parts": float(k + 1)})
+                        parts={"big": float(big_p), "small": float(small_p), "total_parts": float(tot_parts)})
 
     if p.kind == "diff_ratio":
         diff, k = Fraction(str(d["diff"])), Fraction(str(d["k"]))
@@ -646,12 +665,239 @@ def hidden_hint(problem: str, student_text: str, cfg: Any | None = None) -> str:
     return tpl.format(answer=answer_txt, verdict=verdict)
 
 
+# =========================================================================
+# KIỂM TRA ĐỀ BÀI: THIẾU DỮ KIỆN & MÂU THUẪN (BUG 04, BUG 05)
+# =========================================================================
+def detect_missing_data(text: str) -> tuple[bool, str]:
+    """Phát hiện đề bài bị thiếu dữ kiện không thể giải được (BUG 04 - C07, CLI-03)."""
+    low = _norm(text)
+    nums = numbers_in(text)
+
+    # 1. Hình chữ nhật:
+    if "hinh chu nhat" in low:
+        has_chu_vi = "chu vi" in low or "nua chu vi" in low
+        asks_dien_tich = any(k in low for k in (
+            "tinh dien tich", "dien tich la bao nhieu", "dien tich bang bao nhieu",
+            "dien tich hinh chu nhat", "dien tich cua hinh chu nhat"
+        ))
+        asks_chu_vi = any(k in low for k in ("tinh chu vi", "chu vi la bao nhieu", "chu vi bang bao nhieu"))
+        has_dimensions = any(k in low for k in (
+            "chieu dai", "chieu rong", "dai hon", "rong bang", "gap", "ti so",
+            "hon chieu rong", "kem chieu dai", "nua chu vi"
+        ))
+
+        # Chỉ có chu vi mà hỏi diện tích, không có kích thước khác (len(nums) <= 1)
+        if has_chu_vi and (asks_dien_tich or "dien tich" in low) and not has_dimensions and len(nums) <= 1:
+            return (
+                True,
+                "Đề bài này còn thiếu dữ kiện rồi em nhé. Để tính diện tích hình chữ nhật, "
+                "chúng ta cần biết cả số đo chiều dài và chiều rộng (hoặc mối liên hệ giữa chúng). "
+                "Đề bài hiện tại chỉ mới cho biết chu vi nên chưa đủ để tính diện tích. "
+                "Em hãy kiểm tra lại xem đề bài có cho thêm chiều dài hoặc chiều rộng không nhé!"
+            )
+
+        # Chỉ có diện tích mà hỏi chu vi, không có kích thước khác
+        if "dien tich" in low and asks_chu_vi and not has_dimensions and len(nums) <= 1:
+            return (
+                True,
+                "Đề bài này còn thiếu dữ kiện rồi em nhé. Để tính chu vi hình chữ nhật, "
+                "chúng ta cần biết cả chiều dài và chiều rộng. Đề bài chỉ mới cho biết diện tích "
+                "mà chưa có số đo của cạnh nào. Em hãy kiểm tra lại đề bài nhé!"
+            )
+
+    # 2. Chuyển động đều thiếu dữ kiện:
+    if any(k in low for k in ("van toc", "quang duong", "thoi gian", "chuyen dong", "o to", "xe may", "xe dap")):
+        asks_v = any(k in low for k in ("tinh van toc", "van toc la bao nhieu", "van toc cua"))
+        asks_s = any(k in low for k in ("tinh quang duong", "quang duong dai bao nhieu", "di duoc bao xa"))
+        asks_t = any(k in low for k in ("tinh thoi gian", "bao lau", "het bao nhieu thoi gian"))
+        has_rel = any(k in low for k in ("gap", "ti so", "hon", "kem", "nghi"))
+
+        if (asks_v or asks_s or asks_t) and len(nums) == 1 and not has_rel:
+            return (
+                True,
+                "Đề bài toán chuyển động này còn thiếu dữ kiện rồi em nhé. Trong chuyển động đều, "
+                "ta cần ít nhất hai trong ba đại lượng (quãng đường, vận tốc, thời gian) để tìm đại lượng còn lại. "
+                "Em hãy kiểm tra lại đề bài xem có dữ kiện nào bị thiếu không nhé!"
+            )
+
+    # 3. Trung bình cộng thiếu số lượng:
+    if "trung binh cong" in low and ("tong" in low or "la" in low) and len(nums) == 1:
+        if not any(k in low for k in ("hai so", "ba so", "bon so", "nam so", "2 so", "3 so", "4 so", "5 so")):
+            return (
+                True,
+                "Đề bài này còn thiếu dữ kiện về số lượng các số hạng cần tính trung bình cộng rồi em nhé. "
+                "Em hãy kiểm tra lại xem đề bài có nêu rõ là trung bình cộng của mấy số không nhé!"
+            )
+
+    return (False, "")
+
+
+def detect_contradiction(text: str) -> tuple[bool, str]:
+    """Phát hiện đề bài có dữ kiện mâu thuẫn hoặc vô lý (BUG 05 - F10, I14)."""
+    low = _norm(text)
+    nums = numbers_in(text)
+
+    # 1. Tổng - Hiệu: Hiệu > Tổng
+    has_total = any(k in low for k in ("tong hai so", "tong cua hai so", "tong so", "tong bang", "tong la"))
+    has_diff = any(k in low for k in ("hieu hai so", "hieu cua hai so", "hieu la", "hieu bang", "hon nhau", "kem nhau", "nhieu hon"))
+
+    if has_total and has_diff and len(nums) >= 2:
+        after_total = _two_numbers_after(text, "tong hai so la", "tong cua hai so la", "tong so la", "tong la", "tong bang", "tong")
+        after_diff = _two_numbers_after(text, "hieu hai so la", "hieu cua hai so la", "hieu so la", "hieu la", "hieu bang", "hieu", "nhieu hon", "it hon")
+        t_val = after_total[0] if after_total else nums[0]
+        d_val = after_diff[0] if after_diff else nums[1]
+
+        if t_val > 0 and d_val > 0 and d_val > t_val:
+            return (
+                True,
+                f"Đề bài có dữ kiện chưa hợp lý rồi em nhé: Trong bài toán tìm hai số tự nhiên, "
+                f"hiệu của hai số ({fmt_num(d_val)}) không thể lớn hơn tổng của hai số đó ({fmt_num(t_val)}) được "
+                f"(vì nếu hiệu lớn hơn tổng thì số bé sẽ là số âm, không phù hợp với chương trình tiểu học). "
+                f"Em hãy kiểm tra lại đề bài xem có bị ghi nhầm số liệu không nhé!"
+            )
+
+    return (False, "")
+
+
+# =========================================================================
+# ĐÁNH GIÁ CÂU TRẢ LỜI CỦA HỌC SINH (BUG 01 - C03)
+# =========================================================================
+@dataclass
+class StudentAnswerEval:
+    has_answer: bool = False
+    verdict: str = "UNKNOWN"  # "FINAL_CORRECT", "FINAL_WRONG", "INTERMEDIATE_CORRECT", "INTERMEDIATE_WRONG", "CALC_WRONG", "CALC_CORRECT", "QUESTION", "UNKNOWN"
+    is_final: bool = False
+    claimed_val: float | None = None
+    expected_val: float | None = None
+    claims: list[Claim] = field(default_factory=list)
+    detail: str = ""
+
+
+def evaluate_student_answer(
+    student_text: str,
+    problem_text: str,
+    solution: Solution | None = None,
+    mode: str = "1",
+    turn: int = 0,
+) -> StudentAnswerEval:
+    """Đánh giá câu trả lời của học sinh bằng logic Python độc lập (chống đảo ngược đúng/sai)."""
+    text = (student_text or "").strip()
+    if not text:
+        return StudentAnswerEval(verdict="UNKNOWN")
+
+    low = _norm(text)
+    claims = arith_claims(text)
+    sol = solution or solve(problem_text)
+    expected_answers = sol.answers() if sol else []
+
+    # 1. Kiểm tra nếu học sinh đặt câu hỏi hoặc chưa hiểu
+    question_kw = ("chua hieu", "khong hieu", "lam the nao", "huong dan", "la gi", "sao lai", "thay oi giup", "kho qua")
+    if any(k in low for k in question_kw) and not claims and "=" not in text:
+        return StudentAnswerEval(has_answer=False, verdict="QUESTION", detail="Học sinh đặt câu hỏi hoặc chưa hiểu")
+
+    # 2. Kiểm tra nếu có phép tính cụ thể: a op b = c
+    if claims:
+        bad_claims = [c for c in claims if not c.ok]
+        if bad_claims:
+            first_bad = bad_claims[0]
+            return StudentAnswerEval(
+                has_answer=True,
+                verdict="CALC_WRONG",
+                claimed_val=first_bad.stated,
+                expected_val=first_bad.correct,
+                claims=claims,
+                detail=f"Phép tính '{first_bad.expr}' sai (kết quả đúng là {first_bad.correct:g})",
+            )
+        # Tất cả phép tính đều đúng số học
+        for c in claims:
+            if any(abs(c.correct - a) < 1e-9 for a in expected_answers):
+                return StudentAnswerEval(
+                    has_answer=True,
+                    verdict="FINAL_CORRECT",
+                    is_final=True,
+                    claimed_val=c.correct,
+                    expected_val=c.correct,
+                    claims=claims,
+                    detail=f"Phép tính '{c.expr}' đưa ra đáp số đúng {c.correct:g}",
+                )
+        return StudentAnswerEval(
+            has_answer=True,
+            verdict="INTERMEDIATE_CORRECT",
+            claims=claims,
+            detail=f"Phép tính '{claims[0].expr}' chính xác",
+        )
+
+    # 3. Kiểm tra dạng gán giá trị: x = 8 / x = 6 / kết quả là 8
+    x_match = re.search(r"\b[xX]\s*=\s*(-?\d+(?:[.,]\d+)?)", text)
+    if x_match:
+        val = to_float(x_match.group(1))
+        if expected_answers:
+            if any(abs(val - a) < 1e-9 for a in expected_answers):
+                return StudentAnswerEval(
+                    has_answer=True,
+                    verdict="FINAL_CORRECT",
+                    is_final=True,
+                    claimed_val=val,
+                    expected_val=expected_answers[0],
+                    detail=f"Học sinh trả lời x = {val:g} ĐÚNG",
+                )
+            return StudentAnswerEval(
+                has_answer=True,
+                verdict="FINAL_WRONG",
+                is_final=True,
+                claimed_val=val,
+                expected_val=expected_answers[0],
+                detail=f"Học sinh trả lời x = {val:g} SAI (đáp số đúng là {expected_answers[0]:g})",
+            )
+
+    # 4. Kiểm tra nếu học sinh trả lời số trực tiếp (ví dụ: "8", "8 ạ", "kết quả là 8", "em ra 8")
+    nums = numbers_in(text)
+    if nums and expected_answers:
+        last_num = nums[-1]
+        is_closing = any(k in low for k in ("ket qua", "dap an", "dap so", "em ra", "em tinh ra", "bang", "la", "so lon", "so be"))
+        if is_closing or len(nums) == 1:
+            if any(abs(last_num - a) < 1e-9 for a in expected_answers):
+                return StudentAnswerEval(
+                    has_answer=True,
+                    verdict="FINAL_CORRECT",
+                    is_final=True,
+                    claimed_val=last_num,
+                    expected_val=expected_answers[0],
+                    detail=f"Học sinh trả lời {last_num:g} ĐÚNG đáp số cuối",
+                )
+            # Kiểm tra xem có khớp bước trung gian nào không
+            if sol and sol.steps:
+                for idx, st in enumerate(sol.steps):
+                    if st.value is not None and abs(last_num - st.value) < 1e-9:
+                        return StudentAnswerEval(
+                            has_answer=True,
+                            verdict="INTERMEDIATE_CORRECT",
+                            claimed_val=last_num,
+                            expected_val=st.value,
+                            detail=f"Học sinh tính đúng bước trung gian: {st.desc} = {last_num:g}",
+                        )
+            return StudentAnswerEval(
+                has_answer=True,
+                verdict="FINAL_WRONG",
+                is_final=True,
+                claimed_val=last_num,
+                expected_val=expected_answers[0],
+                detail=f"Học sinh trả lời {last_num:g} SAI (đáp số đúng là {expected_answers[0]:g})",
+            )
+
+    return StudentAnswerEval(verdict="UNKNOWN")
+
+
 __all__ = [
     "Claim",
     "Problem",
     "Solution",
     "Step",
+    "StudentAnswerEval",
     "arith_claims",
+    "detect_contradiction",
+    "detect_missing_data",
+    "evaluate_student_answer",
     "fmt_num",
     "hidden_hint",
     "normalise_ops",

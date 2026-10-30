@@ -9,8 +9,17 @@ from typing import Any
 from .config import Config
 from .engine import Engine, GenResult
 from .guard import Violation, clean_model_output, fallback, validate
+from .input_guard import check_input_safety
 from .lang import detect
-from .mathcheck import arith_claims, hidden_hint, numbers_in, solve
+from .mathcheck import (
+    arith_claims,
+    detect_contradiction,
+    detect_missing_data,
+    evaluate_student_answer,
+    hidden_hint,
+    numbers_in,
+    solve,
+)
 from .prompts import DEFAULT_MODE, build_system_from_cfg, mode_key
 
 
@@ -65,6 +74,25 @@ class TutorSession:
         if not text:
             raise ValueError("Tin nhắn rỗng")
 
+        # 1. Tầng Input Guard: lọc jailbreak, trích xuất prompt, y tế, ngoài phạm vi
+        intercepted, safe_reply, reason = check_input_safety(text, mode=self.mode)
+        if intercepted and safe_reply:
+            if stream_cb:
+                stream_cb(safe_reply)
+            self.history.append({"role": "user", "content": text})
+            self.history.append({"role": "assistant", "content": safe_reply})
+            self._trim_history()
+            self.turn_index += 1
+            self.stats["turns"] += 1
+            return TurnResult(
+                reply=safe_reply,
+                raw=safe_reply,
+                violations=[],
+                retries=0,
+                gen=GenResult(text=safe_reply),
+                turn_index=self.turn_index - 1,
+            )
+
         if self.turn_index == 0:
             self.problem = text
             self.lang = detect(text)
@@ -74,8 +102,73 @@ class TutorSession:
                 "content": build_system_from_cfg(self.mode, self.lang, self.cfg),
             }
 
+            # 2. Kiểm tra đề bài thiếu dữ kiện hoặc mâu thuẫn ở lượt 0
+            missing_flag, missing_msg = detect_missing_data(text)
+            if missing_flag and missing_msg:
+                if stream_cb:
+                    stream_cb(missing_msg)
+                self.history.append({"role": "user", "content": text})
+                self.history.append({"role": "assistant", "content": missing_msg})
+                self._trim_history()
+                self.turn_index += 1
+                self.stats["turns"] += 1
+                return TurnResult(
+                    reply=missing_msg,
+                    raw=missing_msg,
+                    violations=[],
+                    retries=0,
+                    gen=GenResult(text=missing_msg),
+                    turn_index=self.turn_index - 1,
+                )
+
+            contra_flag, contra_msg = detect_contradiction(text)
+            if contra_flag and contra_msg:
+                if stream_cb:
+                    stream_cb(contra_msg)
+                self.history.append({"role": "user", "content": text})
+                self.history.append({"role": "assistant", "content": contra_msg})
+                self._trim_history()
+                self.turn_index += 1
+                self.stats["turns"] += 1
+                return TurnResult(
+                    reply=contra_msg,
+                    raw=contra_msg,
+                    violations=[],
+                    retries=0,
+                    gen=GenResult(text=contra_msg),
+                    turn_index=self.turn_index - 1,
+                )
+
         solution = solve(self.problem) if self.problem else None
+
+        # 3. Chế độ 2: sơ đồ đoạn thẳng trực quan ở lượt 0
+        if self.mode == "2" and self.turn_index == 0:
+            from .diagram import is_diagram_suitable, generate_ascii_diagram
+            suitable, diagram_advice = is_diagram_suitable(text, solution)
+            reply_text = diagram_advice if not suitable else generate_ascii_diagram(text, solution)
+            if stream_cb:
+                stream_cb(reply_text)
+            self.history.append({"role": "user", "content": text})
+            self.history.append({"role": "assistant", "content": reply_text})
+            self._trim_history()
+            self.turn_index += 1
+            self.stats["turns"] += 1
+            return TurnResult(
+                reply=reply_text,
+                raw=reply_text,
+                violations=[],
+                retries=0,
+                gen=GenResult(text=reply_text),
+                turn_index=self.turn_index - 1,
+            )
+
         revealed = self._student_revealed(text, solution)
+        student_eval = None
+        if self.turn_index > 0:
+            student_eval = evaluate_student_answer(text, self.problem, solution, mode=self.mode, turn=self.turn_index)
+            if getattr(student_eval, "verdict", "") in ("FINAL_CORRECT", "CORRECT"):
+                revealed = True
+
         ctx: dict[str, Any] = {
             "mode": self.mode,
             "lang": self.lang,
@@ -85,12 +178,25 @@ class TutorSession:
             "student_text": text,
             "solution": solution,
             "revealed_answer": revealed,
+            "student_eval": student_eval,
         }
 
         user_content = text
+        if student_eval and student_eval.has_answer:
+            if student_eval.verdict in ("WRONG", "CALC_WRONG", "FINAL_WRONG", "INTERMEDIATE_WRONG"):
+                user_content += (
+                    f"\n\n[GHI CHÚ HỆ THỐNG: Học sinh vừa đưa ra kết quả/phép tính SAI ({student_eval.detail}). "
+                    f"Thầy tuyệt đối KHÔNG khen đúng, mà hãy nhẹ nhàng nhắc học sinh tính lại cẩn thận!]"
+                )
+            elif student_eval.verdict in ("CORRECT", "FINAL_CORRECT", "INTERMEDIATE_CORRECT"):
+                user_content += (
+                    f"\n\n[GHI CHÚ HỆ THỐNG: Học sinh vừa tính ĐÚNG ({student_eval.detail}). "
+                    f"Thầy hãy khen ngợi ngắn gọn và hướng dẫn bước tiếp theo!]"
+                )
+
         hint = hidden_hint(self.problem, text, self.cfg)
         if hint:
-            user_content = f"{text}\n\n{hint}"
+            user_content = f"{user_content}\n\n{hint}"
 
         base_messages = self.history + [{"role": "user", "content": user_content}]
         messages = list(base_messages)

@@ -129,8 +129,10 @@ def _repl(session: TutorSession, cfg: Config, *, stream: bool) -> int:
         try:
             if stream:
                 print("Gia sư: ", end="", flush=True)
-                res = session.send(text, stream_cb=lambda s: print(s, end="", flush=True), raw=True)
+                res = session.send(text, stream_cb=lambda s: print(s, end="", flush=True), raw=False)
                 print()
+                if res.used_fallback:
+                    print(f"\n(Phản hồi sau kiểm duyệt an toàn):\n{res.reply}")
             else:
                 res = session.send(text)
                 print(f"\nGia sư:\n{res.reply}")

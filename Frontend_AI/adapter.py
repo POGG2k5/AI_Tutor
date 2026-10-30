@@ -157,11 +157,7 @@ class TutorAdapter:
     def _ensure_session(self) -> TutorSession:
         if self._session is None:
             self.reset()
-        session = self._session  # type: ignore[return-value]
-        if session.history and session.history[0]["role"] == "system":
-            if ELEMENTARY_MATH_SYSTEM_PROMPT.strip() not in session.history[0]["content"]:
-                session.history[0]["content"] += ELEMENTARY_MATH_SYSTEM_PROMPT
-        return session
+        return self._session  # type: ignore[return-value]
 
     def reset(self, mode: str | None = None) -> None:
         """Làm mới phiên học."""
@@ -171,10 +167,6 @@ class TutorAdapter:
             self._session = TutorSession(self.engine, mode=self.current_mode, cfg=self.cfg)
         else:
             self._session.set_mode(self.current_mode)
-
-        if self._session.history and self._session.history[0]["role"] == "system":
-            if ELEMENTARY_MATH_SYSTEM_PROMPT.strip() not in self._session.history[0]["content"]:
-                self._session.history[0]["content"] += ELEMENTARY_MATH_SYSTEM_PROMPT
 
     def restore_session(self, messages: list[dict[str, Any]], mode: str = "1") -> None:
         """Khôi phục lại phiên chat từ lịch sử."""
@@ -210,19 +202,7 @@ class TutorAdapter:
             if session.history:
                 session.history = [session.history[0]]
 
-        # 2. Tự động kiểm tra tính toán của học sinh bằng Python (Chống khen phép tính sai)
-        claims = arith_claims(clean_user_text)
-        input_to_send = clean_user_text
-        for c in claims:
-            if not c.ok:
-                input_to_send += (
-                    f"\n\n[GHI CHÚ HỆ THỐNG: Phép tính '{c.expr}' của học sinh là SAI (kết quả đúng là {c.correct:g}). "
-                    f"Em tuyệt đối KHÔNG được khen đúng, mà hãy yêu cầu học sinh tính lại cẩn thận!]"
-                )
-            else:
-                input_to_send += f"\n\n[GHI CHÚ HỆ THỐNG: Phép tính '{c.expr}' của học sinh là ĐÚNG.]"
-
-        # 3. Chuẩn hoá danh sách tin nhắn giao diện
+        # 2. Chuẩn hoá danh sách tin nhắn giao diện
         clean_messages: list[dict[str, str]] = []
         for item in (history or []):
             if isinstance(item, dict):
@@ -238,7 +218,7 @@ class TutorAdapter:
                 if a_text:
                     clean_messages.append({"role": "assistant", "content": a_text})
 
-        # 4. Cắt bớt lịch sử phiên nếu quá dài để không bao giờ vượt context window
+        # 3. Cắt bớt lịch sử phiên nếu quá dài để không bao giờ vượt context window
         if len(session.history) > 5:
             session.history = [session.history[0]] + session.history[-4:]
 
@@ -248,9 +228,6 @@ class TutorAdapter:
 
         def _run() -> None:
             try:
-                if session.history and ELEMENTARY_MATH_SYSTEM_PROMPT.strip() not in session.history[0]["content"]:
-                    session.history[0]["content"] += ELEMENTARY_MATH_SYSTEM_PROMPT
-
                 # Token rộng rãi để giải hoàn chỉnh mà không bị cắt cụt giữa chừng
                 if self.current_mode == "3":
                     max_tokens = 650
@@ -259,9 +236,9 @@ class TutorAdapter:
                 else:
                     max_tokens = 350
                 res = session.send(
-                    input_to_send,
+                    clean_user_text,
                     stream_cb=lambda s: tokens.append(s),
-                    raw=True,
+                    raw=False,
                     max_tokens=max_tokens,
                 )
                 result_holder[0] = res
