@@ -39,6 +39,19 @@ except ImportError:
 # =========================================================================
 ELEMENTARY_MATH_SYSTEM_PROMPT = """
 
+[QUY TẮC BẮT BUỘC VỀ THUẬT NGỮ SƯ PHẠM VÀ DỮ KIỆN ĐỀ BÀI]:
+1. TUYỆT ĐỐI BÁM SÁT DỮ KIỆN CỦA ĐỀ BÀI:
+   - TUYỆT ĐỐI KHÔNG TỰ BỊA ĐẶT hay tráo đổi số liệu của học sinh (ví dụ đề cho vận tốc 150 km/h thì PHẢI giữ nguyên 150 km/h, CẤM tự ý đổi thành 75 km/h rồi cãi học sinh).
+   - Nếu học sinh tính đúng (150 + 150 = 300), em PHẢI công nhận kết quả và khen ngợi học sinh.
+
+2. THUẬT NGỮ TOÁN TIỂU HỌC CHUẨN MỰC (TÌM X):
+   - Trong phép cộng (x + a = b): x là 'Số hạng chưa biết', a là 'Số hạng đã biết', b là 'Tổng'.
+     Quy tắc: Muốn tìm số hạng chưa biết, ta lấy Tổng trừ đi số hạng đã biết (x = b - a).
+     TUYỆT ĐỐI KHÔNG dùng từ sai như 'số bị cộng' hay 'hiệu của tổng'.
+   - Trong phép chia có dư (ví dụ 10 cái kẹo chia 4 bạn):
+     Khi học sinh tính ra mỗi bạn 2 cái, còn dư 2 cái: HÃY CÔNG NHẬN ĐÁP SỐ ĐÚNG VÀ KẾT THÚC BÀI TOÁN. TUYỆT ĐỐI KHÔNG ép học sinh chia tiếp 2 : 4 ra số thập phân lẻ!
+
+
 [QUY TẮC BẮT BUỘC: PHẠM VI TOÁN TIỂU HỌC & NHẬN DIỆN KHỐI LỚP 1–5]:
 1. TỰ ĐỘNG NHẬN DIỆN KHỐI LỚP VÀ ĐIỀU CHỈNH SƯ PHẠM:
    - Lớp 1: Số đếm, so sánh, cộng trừ trong phạm vi 100, bài toán 1 phép tính đơn giản.
@@ -218,9 +231,13 @@ class TutorAdapter:
                 if a_text:
                     clean_messages.append({"role": "assistant", "content": a_text})
 
-        # 3. Cắt bớt lịch sử phiên nếu quá dài để không bao giờ vượt context window
-        if len(session.history) > 5:
-            session.history = [session.history[0]] + session.history[-4:]
+        # 3. Luôn đồng bộ chuẩn xác session.history theo đúng những gì đang hiển thị trên UI
+        sys_msg = session.history[0] if session.history else {"role": "system", "content": ""}
+        synced_hist = [sys_msg]
+        # Lấy tối đa 4 tin nhắn gần nhất từ giao diện đưa vào session để tránh tràn bộ nhớ
+        for msg in clean_messages[-4:]:
+            synced_hist.append({"role": msg["role"], "content": msg["content"]})
+        session.history = synced_hist
 
         clean_messages.append({"role": "user", "content": clean_user_text})
         clean_messages.append({"role": "assistant", "content": "..."})

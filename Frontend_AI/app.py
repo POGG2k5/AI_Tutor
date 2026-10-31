@@ -285,7 +285,7 @@ def build_ui(adapter: TutorAdapter) -> gr.Blocks:
                     """
                     <div id="brand-header">
                         <h2>Gia sư Toán AI</h2>
-                        <p>Toán Tiểu học Lớp 1 → 5 • Phương pháp Socratic</p>
+                        <p>Toán Tiểu học Lớp 1 → 5</p>
                     </div>
                     """
                 )
@@ -424,16 +424,19 @@ def build_ui(adapter: TutorAdapter) -> gr.Blocks:
                 gr.update(choices=updated_choices, value=new_sess_id),
             )
 
-        btn_send.click(
+        # Chống gửi đúp (concurrency_limit=1) để tránh 2 luồng Enter + Click chạy đè lên nhau gây spam lặp từ
+        send_event = btn_send.click(
             on_send,
             inputs=[user_input, chatbot, mode_dropdown, current_session_id],
             outputs=[chatbot, user_input, current_session_id, history_dropdown],
+            concurrency_limit=1,
         )
 
         user_input.submit(
             on_send,
             inputs=[user_input, chatbot, mode_dropdown, current_session_id],
             outputs=[chatbot, user_input, current_session_id, history_dropdown],
+            concurrency_limit=1,
         )
 
         # Nút Cuộc trò chuyện mới
