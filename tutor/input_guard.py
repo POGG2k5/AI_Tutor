@@ -33,6 +33,10 @@ _PROMPT_LEAK_PATTERNS = [
     r"(cho\s*biet|in\s*ra|show|display|print|tell\s*me|doc\s*lai|nhac\s*lai|repeat)\s+(toan\s*bo\s+)?(your\s+)?(prompt|system|quy\s*tac|huong\s*dan|instructions)",
     r"prompt\s*instructions",
     r"(nhung|cac)?\s*dieu\s*cam",
+    r"cau\s*lenh\s*cam",
+    r"lenh\s*cam",
+    r"cai\s*dat\s*nhung\s*cau\s*lenh",
+    r"quy\s*dinh\s*cam",
     r"banned_words",
     r"base_prompts",
     r"system_modes",
@@ -64,6 +68,10 @@ _JAILBREAK_PATTERNS = [
     r"root\s*mode",
     r"developer\s*mode",
     r"tro\s*thanh\s*mot\s*ai\s*khong\s*co\s*gioi\s*han",
+    r"dong\s*vai\s*(la\s*)?(mot\s*)?(nha\s*tho|nguoi|ai|bac\s*si|lap\s*trinh|chuyen\s*gia)",
+    r"lam\s*(cho\s*em\s*)?(mot\s*)?bai\s*tho",
+    r"viet\s*(cho\s*em\s*)?(mot\s*)?(bai\s*tho|doan\s*van|cau\s*chuyen)",
+    r"quen\s*(het\s*)?(cac\s*)?(quy\s*tac|chi\s*dan|lenh)",
 ]
 
 _JAILBREAK_RE = re.compile("|".join(_JAILBREAK_PATTERNS), re.IGNORECASE)
@@ -122,7 +130,16 @@ def is_medical_query(text: str) -> bool:
 # 4. PHÁT HIỆN NỘI DUNG NGOÀI PHẠM VI TOÁN TIỂU HỌC LỚP 1–5 (BUG 09)
 # =========================================================================
 _OUT_OF_SCOPE_PATTERNS = [
-    # Đại số THCS/THPT & Giải tích đại học
+    # Hinh hoc THCS/THPT (tinh do goc, luong giac, goc 30 do, pytago, goc vuong tinh goc)
+    r"\d+\s*(do|°|deg)",
+    r"goc\s*[a-z0-9_]{1,4}\s*(=|bang)?\s*\d+",
+    r"goc\s*[a-z0-9_]{1,4}\s*(=|bang)?",
+    r"[ˆ^]\s*[a-z]",
+    r"pytago|pythagore",
+    r"tam\s*giac\s*dong\s*dang",
+    r"hinh\s*tru|hinh\s*non|hinh\s*cau",
+    r"tiep\s*tuyen|day\s*cung|goc\s*noi\s*tiep",
+    # Dai so THCS/THPT & Giai tich dai hoc
     r"giai\s*tich",
     r"tich\s*phan",
     r"dao\s*ham",
@@ -130,22 +147,30 @@ _OUT_OF_SCOPE_PATTERNS = [
     r"logarit|\blog\b|\bln\b",
     r"phuong\s*trinh\s*bac\s*(hai|ba|bon|2|3|4)",
     r"x\s*\^\s*2|x\s*²|x\s*\^|x\s*³",
-    r"he\s*phuong\s*trinh\s*bac\s*nhat",
+    r"he\s*phuong\s*trinh",
+    r"can\s*bac\s*(hai|ba|2|3)|\bsqrt\b|√",
+    r"hang\s*dang\s*thuc",
+    r"bat\s*dang\s*thuc|\bbdt\b",
     r"luong\s*giac|\bsin\b|\bcos\b|\btan\b|\bcot\b",
     r"so\s*phuc",
     r"ma\s*tran",
     r"vecto|vector",
     r"hinh\s*hoc\s*khong\s*gian\s*(toa\s*do|thpt)",
-    # Vật lý, Hoá học
+    # Vat ly, Hoa hoc
     r"vat\s*ly\s*(thpt|cap\s*3|10|11|12)",
     r"con\s*lac\s*(don|lo\s*xo)",
     r"dien\s*tro\s*r|dinh\s*luat\s*om",
     r"quang\s*hinh|thau\s*kinh",
     r"hat\s*nhan|phong\s*xa",
     r"hoa\s*hoc|axit|bazo|phan\s*ung\s*hoa\s*hoc",
-    # Lập trình
+    # Lich su, Dia ly, Nhan vat, Su kien
+    r"bac\s*ho|ho\s*chi\s*minh|vo\s*nguyen\s*giap|quang\s*trung|tran\s*hung\s*dao",
+    r"dien\s*bien\s*phu|chien\s*thang|chien\s*tranh|giai\s*phong",
+    r"sinh\s*nam\s*bao\s*nhieu|que\s*o\s*dau|\bla\s*ai\b|\bai\s*la\b",
+    r"thu\s*do\s*(cua\s*)?nuoc|nam\s*nao\s*(dien\s*ra|ket\s*thuc)",
+    # Lap trinh
     r"viet\s*code|lap\s*trinh|python|javascript|c\+\+|java\b|html\b",
-    # Chính trị, nội dung người lớn, cờ bạc
+    # Chinh tri, noi dung nguoi lon, co bac
     r"chinh\s*tri|dang\s*cong\s*san|bau\s*cu|chinh\s*phu",
     r"chuyen\s*nguoi\s*lon|18\+|sex|tinh\s*duc|khieu\s*dam",
     r"danh\s*bac|ca\s*do|lo\s*de|tai\s*xiu",
@@ -205,8 +230,7 @@ def check_input_safety(text: str, mode: str = "1") -> tuple[bool, str | None, st
     if is_out_of_scope(clean_text):
         return (
             True,
-            "Nội dung này nằm ngoài phạm vi chương trình môn Toán tiểu học (Lớp 1–5) nên thầy chưa hỗ trợ dạng này nhé. "
-            "Thầy là gia sư Toán tiểu học, em có bài toán tiểu học nào cần thầy trò mình cùng giải không?",
+            "thầy chỉ hỗ trợ các bài tập cấp tiểu học thôi nhé (nội dung này nằm ngoài phạm vi Toán tiểu học)!",
             "out_of_scope",
         )
 
