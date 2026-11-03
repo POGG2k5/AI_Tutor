@@ -732,6 +732,47 @@ def detect_missing_data(text: str) -> tuple[bool, str]:
     return (False, "")
 
 
+
+def detect_indeterminate(text: str) -> tuple[bool, str]:
+    """Phát hiện bài toán có nhiều nghiệm (vô số nghiệm) do nhiều ẩn số mà không đủ phương trình.
+
+    Ví dụ: "Tìm x và y: x + y = 15" — chỉ có 1 phương trình nhưng 2 ẩn → vô số nghiệm.
+    Thay vì tự mò đáp án, AI sẽ dẫn dắt học sinh khám phá: "chọn thử x = 1 thì y bằng bao nhiêu?"
+    """
+    low = _norm(text)
+    # Chỉ xử lý khi có cả "x" và "y" cùng dấu "="
+    has_xy = bool(re.search(r"(?<![a-z])x(?![a-z])", low)) and bool(re.search(r"(?<![a-z])y(?![a-z])", low))
+    if not has_xy or "=" not in text:
+        return (False, "")
+
+    # Đếm số phương trình (số dấu '=')
+    eq_count = text.count("=")
+
+    # Nếu chỉ 1 phương trình mà 2 ẩn → vô số nghiệm
+    if eq_count < 2:
+        nums = numbers_in(text)
+        rhs = nums[0] if nums else None
+        # Trích xuất phương trình gốc từ đề bài
+        eq_match = re.search(r"[xXyY]\s*[+\-\*×:÷/]\s*[xXyY]\s*=\s*" + _NUM, text)
+        eq_text = eq_match.group(0).strip() if eq_match else "x + y = ?"
+        if rhs is not None:
+            rhs_str = fmt_num(rhs)
+            return (
+                True,
+                f"Bài toán này có nhiều đáp án đúng em nhé! Phương trình {eq_text} "
+                f"có vô số nghiệm vì chỉ có 1 phương trình mà có tới 2 ẩn số. "
+                f"Thầy trò mình cùng thử nhé: nếu chọn x = 1 thì y bằng bao nhiêu?"
+            )
+        return (
+            True,
+            "Bài toán này có nhiều đáp án đúng em nhé! Khi chỉ có 1 phương trình mà có tới 2 ẩn số "
+            "(x và y), ta không thể tìm được một đáp án duy nhất. "
+            "Thầy trò mình cùng thử chọn một giá trị cho x rồi tính y nhé!"
+        )
+
+    return (False, "")
+
+
 def detect_contradiction(text: str) -> tuple[bool, str]:
     """Phát hiện đề bài có dữ kiện mâu thuẫn hoặc vô lý (BUG 05 - F10, I14)."""
     low = _norm(text)
@@ -896,6 +937,7 @@ __all__ = [
     "StudentAnswerEval",
     "arith_claims",
     "detect_contradiction",
+    "detect_indeterminate",
     "detect_missing_data",
     "evaluate_student_answer",
     "fmt_num",

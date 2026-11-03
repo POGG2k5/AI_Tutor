@@ -1,13 +1,13 @@
 """BẢN CHỤP DỰ PHÒNG — AUTO-GENERATED, KHÔNG SỬA TAY.
 
 Sinh bằng: python scripts/extract_notebook.py
-Nguồn: nckh-math.ipynb (sha256=4611b8469253cd17f3ee94122f54bd68bcd4c3be986614ff61f9dd3a9d5fbe09)
+Nguồn: nckh-math.ipynb (sha256=82cf0c192dfe9f9a696b8b06a51d79338ca65f9bbc7d74c8a2587f760fa0c1ba)
 Chỉ dùng khi thiếu notebook gốc; tests/test_parity.py luôn so với notebook thật.
 """
 from __future__ import annotations
 
 SOURCE = "reference/nckh-math.ipynb"
-SOURCE_SHA256 = '4611b8469253cd17f3ee94122f54bd68bcd4c3be986614ff61f9dd3a9d5fbe09'
+SOURCE_SHA256 = '82cf0c192dfe9f9a696b8b06a51d79338ca65f9bbc7d74c8a2587f760fa0c1ba'
 
 MODE_NAMES: dict[str, str] = {'1': '1. Gia sư gợi mở từng bước (Socratic cụ thể)', '2': '2. Hướng dẫn trực quan (Sơ đồ đoạn thẳng)', '3': '3. Bài giải mẫu chuẩn Bộ GD&ĐT (Đầy đủ)'}
 

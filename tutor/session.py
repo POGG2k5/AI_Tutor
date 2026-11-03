@@ -14,6 +14,7 @@ from .lang import detect
 from .mathcheck import (
     arith_claims,
     detect_contradiction,
+    detect_indeterminate,
     detect_missing_data,
     evaluate_student_answer,
     hidden_hint,
@@ -136,6 +137,25 @@ class TutorSession:
                     violations=[],
                     retries=0,
                     gen=GenResult(text=contra_msg),
+                    turn_index=self.turn_index - 1,
+                )
+
+            # 2c. Kiểm tra bài toán vô số nghiệm (nhiều ẩn, thiếu phương trình)
+            indet_flag, indet_msg = detect_indeterminate(text)
+            if indet_flag and indet_msg:
+                if stream_cb:
+                    stream_cb(indet_msg)
+                self.history.append({"role": "user", "content": text})
+                self.history.append({"role": "assistant", "content": indet_msg})
+                self._trim_history()
+                self.turn_index += 1
+                self.stats["turns"] += 1
+                return TurnResult(
+                    reply=indet_msg,
+                    raw=indet_msg,
+                    violations=[],
+                    retries=0,
+                    gen=GenResult(text=indet_msg),
                     turn_index=self.turn_index - 1,
                 )
 

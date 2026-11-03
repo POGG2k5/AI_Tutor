@@ -19,6 +19,7 @@ from tutor.input_guard import (
 )
 from tutor.mathcheck import (
     detect_contradiction,
+    detect_indeterminate,
     detect_missing_data,
     evaluate_student_answer,
     parse_problem,
@@ -283,6 +284,65 @@ def test_bug10_jailbreak_without_math_no_hallucination(mock_session):
     assert "12 : x = 4" not in res.reply
     assert "Toán tiểu học" in res.reply
     assert "gửi đề bài" in res.reply.lower() or "bài toán nào" in res.reply.lower()
+
+
+
+
+# =========================================================================
+# TC-21: Bài toán nhiều ẩn / vô số nghiệm (indeterminate)
+# =========================================================================
+def test_tc21_indeterminate_two_unknowns():
+    """TC-21: x + y = 15 phải nhận diện là vô số nghiệm, không tự chọn đáp án."""
+    flag, msg = detect_indeterminate("Tìm x và y: x + y = 15")
+    assert flag is True
+    assert "nhiều đáp án" in msg.lower() or "vô số nghiệm" in msg.lower()
+    assert "x = 1" in msg  # Gợi ý chọn thử x = 1
+
+    # Phải không trigger với bài toán 1 ẩn bình thường
+    flag2, _ = detect_indeterminate("Tìm x: x + 5 = 12")
+    assert flag2 is False
+
+    # Phải không trigger với bài lời văn không có x, y
+    flag3, _ = detect_indeterminate("Tổng hai số là 24, hiệu hai số là 6")
+    assert flag3 is False
+
+
+def test_tc21_session_indeterminate_response(mock_session):
+    """TC-21: Session phải trả lời dẫn dắt thay vì tự mò đáp án."""
+    session = mock_session
+    session.set_mode("1")
+    res = session.send("Tìm x và y: x + y = 15")
+    assert "nhiều đáp án" in res.reply.lower() or "vô số nghiệm" in res.reply.lower()
+    assert "x = 1" in res.reply
+    # Không được tự chọn x=7, y=8
+    assert "x = 7" not in res.reply
+    assert "x = 8" not in res.reply
+    assert res.used_fallback is False
+
+
+def test_tc21_variants():
+    """TC-21 mở rộng: các biến thể bài nhiều nghiệm."""
+    # x - y = 10
+    flag, msg = detect_indeterminate("x - y = 10")
+    assert flag is True
+    assert "x - y = 10" in msg
+
+    # Không nhầm khi input chỉ chứa chữ 'y' trong từ khác (như 'yêu cầu')
+    flag2, _ = detect_indeterminate("Tìm x biết x + 5 = 12, yêu cầu tìm x")
+    assert flag2 is False  # chỉ có x, 'y' nằm trong từ 'yêu' -> regex (?<![a-z]) chặn
+
+
+# =========================================================================
+# TC-22: Đố mẹo phi toán học (xác nhận lại trạng thái)
+# =========================================================================
+def test_tc22_trick_question_not_crash(mock_session):
+    """TC-22: Câu đố mẹo không gây crash, trả lời hợp lý (mock -> fallback chấp nhận được)."""
+    session = mock_session
+    session.set_mode("1")
+    res = session.send("Một con gà có 2 chân, 5 con gà có mấy cái tai?")
+    # Với mock engine, sẽ dùng fallback - quan trọng là không crash và không bịa bài toán
+    assert res.reply  # Phải có phản hồi
+    assert "12 : x = 4" not in res.reply  # Không được bịa bài toán lạ
 
 
 # =========================================================================
