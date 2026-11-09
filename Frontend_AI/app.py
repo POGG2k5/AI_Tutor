@@ -225,6 +225,38 @@ footer { display: none !important; }
     border-color: var(--text-primary) !important;
 }
 
+
+/* ===== LÀM MƯỢT GIAO DIỆN CHAT & BONG BÓNG (SMOOTH TRANSITIONS) ===== */
+#chatbot-window {
+    scroll-behavior: smooth !important;
+}
+
+.message-wrap, .bubble-wrap {
+    transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+
+.message {
+    animation: fadeInMessage 0.22s ease-out forwards;
+    will-change: transform, opacity;
+}
+
+@keyframes fadeInMessage {
+    from {
+        opacity: 0.3;
+        transform: translateY(4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.prose p, .bot p, .user p {
+    line-height: 1.65 !important;
+    word-break: break-word !important;
+    transition: opacity 0.1s ease-out;
+}
+
 .disclaimer-text {
     text-align: center;
     font-size: 0.74rem;

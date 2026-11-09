@@ -269,14 +269,18 @@ class TutorAdapter:
         t = Thread(target=_run, daemon=True)
         t.start()
 
-        # Streaming từng từ ra màn hình
+        # Streaming từng từ ra màn hình mượt mà (smooth pacing)
         partial = ""
         while not done_flag[0] or tokens:
-            while tokens:
-                partial += tokens.pop(0)
+            if tokens:
+                # Gom nhe cac token de trinh duyet khong bi re-render lien tuc gay giat
+                batch = []
+                while tokens and len(batch) < 3:
+                    batch.append(tokens.pop(0))
+                partial += "".join(batch)
                 clean_messages[-1]["content"] = partial
                 yield clean_messages
-            time.sleep(0.01)
+            time.sleep(0.025)
 
         if error_holder[0]:
             clean_messages[-1]["content"] = error_holder[0]

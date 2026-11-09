@@ -16,8 +16,9 @@ from .lang import strip_diacritics
 
 
 def _norm(text: str) -> str:
-    text = strip_diacritics(text or "").lower()
-    return text.replace("đ", "d")
+    if not text:
+        return ""
+    return strip_diacritics(text).lower().replace("đ", "d")
 
 
 # =========================================================================

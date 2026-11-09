@@ -16,6 +16,8 @@ from .mathcheck import (
     detect_contradiction,
     detect_indeterminate,
     detect_missing_data,
+    detect_zero_issue,
+    detect_remainder_completion,
     evaluate_student_answer,
     hidden_hint,
     numbers_in,
@@ -140,6 +142,25 @@ class TutorSession:
                     turn_index=self.turn_index - 1,
                 )
 
+            # 2b. Kiểm tra bài toán chia cho 0 hoặc nhân với 0 vô nghiệm
+            zero_flag, zero_msg = detect_zero_issue(text)
+            if zero_flag and zero_msg:
+                if stream_cb:
+                    stream_cb(zero_msg)
+                self.history.append({"role": "user", "content": text})
+                self.history.append({"role": "assistant", "content": zero_msg})
+                self._trim_history()
+                self.turn_index += 1
+                self.stats["turns"] += 1
+                return TurnResult(
+                    reply=zero_msg,
+                    raw=zero_msg,
+                    violations=[],
+                    retries=0,
+                    gen=GenResult(text=zero_msg),
+                    turn_index=self.turn_index - 1,
+                )
+
             # 2c. Kiểm tra bài toán vô số nghiệm (nhiều ẩn, thiếu phương trình)
             indet_flag, indet_msg = detect_indeterminate(text)
             if indet_flag and indet_msg:
@@ -185,6 +206,23 @@ class TutorSession:
         revealed = self._student_revealed(text, solution)
         student_eval = None
         if self.turn_index > 0:
+            rem_flag, rem_msg = detect_remainder_completion(text, self.problem)
+            if rem_flag and rem_msg:
+                if stream_cb:
+                    stream_cb(rem_msg)
+                self.history.append({"role": "user", "content": text})
+                self.history.append({"role": "assistant", "content": rem_msg})
+                self._trim_history()
+                self.turn_index += 1
+                self.stats["turns"] += 1
+                return TurnResult(
+                    reply=rem_msg,
+                    raw=rem_msg,
+                    violations=[],
+                    retries=0,
+                    gen=GenResult(text=rem_msg),
+                    turn_index=self.turn_index - 1,
+                )
             student_eval = evaluate_student_answer(text, self.problem, solution, mode=self.mode, turn=self.turn_index)
             if getattr(student_eval, "verdict", "") in ("FINAL_CORRECT", "CORRECT"):
                 revealed = True

@@ -733,6 +733,58 @@ def detect_missing_data(text: str) -> tuple[bool, str]:
 
 
 
+_ZERO_MUL_RE = re.compile(r"x\s*[\*×\.]\s*0\s*=\s*(\d+)|0\s*[\*×\.]\s*x\s*=\s*(\d+)")
+_ZERO_DIV_RE = re.compile(r"[:÷/]\s*0")
+_HAS_DIGIT_RE = re.compile(r"\d+")
+_INDET_XY_RE = re.compile(r"(?<![a-z])x(?![a-z])")
+_INDET_Y_RE = re.compile(r"(?<![a-z])y(?![a-z])")
+_INDET_EQ_RE = re.compile(r"[xXyY]\s*[+\-\*×:÷/]\s*[xXyY]\s*=\s*(-?\d+(?:[.,]\d+)?)")
+
+
+def detect_zero_issue(text: str) -> tuple[bool, str]:
+    """Phát hiện phép tính vô nghiệm hoặc không xác định với số 0 (nhân/chia cho 0)."""
+    low = _norm(text)
+    # x * 0 = a (với a != 0) -> vô nghiệm
+    m_mul = _ZERO_MUL_RE.search(low)
+    if m_mul:
+        num = int(m_mul.group(1) or m_mul.group(2))
+        if num != 0:
+            return (
+                True,
+                f"Không có số nào nhân với 0 bằng {num} em nhé (vì mọi số nhân với 0 đều bằng 0). "
+                f"Do đó bài toán này không có giá trị x nào thỏa mãn!"
+            )
+        else:
+            return (
+                True,
+                "Mọi số nhân với 0 đều bằng 0, nên phương trình x * 0 = 0 có vô số giá trị x thỏa mãn em nhé!"
+            )
+    # a : 0 hoặc x : 0
+    if _ZERO_DIV_RE.search(low):
+        return (
+            True,
+            "Trong toán học (đặc biệt là toán tiểu học), không thể chia cho số 0 em nhé! Phép chia này không xác định."
+        )
+    return (False, "")
+
+
+def detect_remainder_completion(student_text: str, problem_text: str) -> tuple[bool, str]:
+    """Phát hiện học sinh đã hoàn thành phép chia có dư cho đồ vật rời rạc (cái kẹo, viên bi)."""
+    low_s = _norm(student_text)
+    low_p = _norm(problem_text)
+    is_discrete = any(k in low_p for k in ("cai keo", "vien bi", "qua cam", "bong hoa", "con ga", "quyen vo", "cai banh"))
+    has_div = any(k in low_p for k in ("chia deu", "chia cho", "moi ban", "moi nguoi"))
+    if is_discrete and has_div:
+        if "du" in low_s and _HAS_DIGIT_RE.search(low_s):
+            return (
+                True,
+                "Đúng rồi em! Đây là phép chia có dư trong toán tiểu học. "
+                "Vì đồ vật rời rạc (như cái kẹo, viên bi) phải là số tự nhiên nguyên vẹn nên ta không chia tiếp phần dư ra số thập phân. "
+                "Bài toán đã hoàn thành xuất sắc rồi nhé!"
+            )
+    return (False, "")
+
+
 def detect_indeterminate(text: str) -> tuple[bool, str]:
     """Phát hiện bài toán có nhiều nghiệm (vô số nghiệm) do nhiều ẩn số mà không đủ phương trình.
 
@@ -741,8 +793,10 @@ def detect_indeterminate(text: str) -> tuple[bool, str]:
     """
     low = _norm(text)
     # Chỉ xử lý khi có cả "x" và "y" cùng dấu "="
-    has_xy = bool(re.search(r"(?<![a-z])x(?![a-z])", low)) and bool(re.search(r"(?<![a-z])y(?![a-z])", low))
-    if not has_xy or "=" not in text:
+    if "=" not in text:
+        return (False, "")
+    has_xy = bool(_INDET_XY_RE.search(low)) and bool(_INDET_Y_RE.search(low))
+    if not has_xy:
         return (False, "")
 
     # Đếm số phương trình (số dấu '=')
@@ -753,7 +807,7 @@ def detect_indeterminate(text: str) -> tuple[bool, str]:
         nums = numbers_in(text)
         rhs = nums[0] if nums else None
         # Trích xuất phương trình gốc từ đề bài
-        eq_match = re.search(r"[xXyY]\s*[+\-\*×:÷/]\s*[xXyY]\s*=\s*" + _NUM, text)
+        eq_match = _INDET_EQ_RE.search(text)
         eq_text = eq_match.group(0).strip() if eq_match else "x + y = ?"
         if rhs is not None:
             rhs_str = fmt_num(rhs)
@@ -939,6 +993,8 @@ __all__ = [
     "detect_contradiction",
     "detect_indeterminate",
     "detect_missing_data",
+    "detect_zero_issue",
+    "detect_remainder_completion",
     "evaluate_student_answer",
     "fmt_num",
     "hidden_hint",
